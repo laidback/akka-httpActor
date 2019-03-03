@@ -13,13 +13,15 @@ import scala.concurrent.Future
 
 case class User(id: Int, name: String)
 
-object UserProtocol extends SprayJsonSupport with DefaultJsonProtocol {
+object UserProtocol extends SprayJsonSupport {
+  import DefaultJsonProtocol._
   implicit val userFormat: JsonFormat[User] = jsonFormat2(User)
 }
 
 final case class Document(id: Int, name: String)
 
-object DocumentProtocol extends DefaultJsonProtocol {
+trait DocumentProtocol extends SprayJsonSupport {
+  import DefaultJsonProtocol._
   implicit val documentFormat = jsonFormat2(Document)
 }
 

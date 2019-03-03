@@ -5,6 +5,4 @@ case class User(id: Int, name: String)
 final case class Document(name: String)
 final case class Documents(docs: Seq[Document])
 
-case class Document(name: String)
-
 

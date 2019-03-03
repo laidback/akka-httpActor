@@ -10,10 +10,8 @@ import akka.http.scaladsl.server.directives.MethodDirectives.{ delete, get, post
 import akka.http.scaladsl.server.directives.PathDirectives.path
 import akka.http.scaladsl.server.directives.RouteDirectives.complete
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
-import akka.http.scaladsl.marshalling.ToResponseMarshaller
 import akka.stream.ActorMaterializer
-import akka.stream.alpakka.slick.scaladsl.{ Slick, SlickSession }
-import akka.stream.scaladsl.{ Sink, Source }
+import akka.stream.alpakka.slick.scaladsl.SlickSession
 import akka.util.Timeout
 import akka.pattern.ask
 
@@ -21,7 +19,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{ Failure, Success }
 
-trait DocumentRoute extends SprayJsonSupport {
+trait DocumentRoute extends DocumentProtocol {
 
   // we leave these abstract, since they will be provided by the App
   implicit def system: ActorSystem
@@ -36,7 +34,7 @@ trait DocumentRoute extends SprayJsonSupport {
 
   def documentRoute: Route = Route {
     import DocumentManager._
-    import DocumentProtocol._
+    //import DocumentProtocol._
     val documentManager: ActorRef = system.actorOf(Props(new DocumentManager()))
 
     implicit val ec = system.dispatcher
@@ -47,14 +45,22 @@ trait DocumentRoute extends SprayJsonSupport {
           concat(
             get {
               val docs: Future[List[Document]] = (documentManager ? ListDocuments).mapTo[List[Document]]
+              log.debug(s"docs future: $docs")
               onComplete(docs) {
-                case Success(v) => complete(StatusCodes.OK, v)
-                case Failure(e) => complete(StatusCodes.InternalServerError, e)
+                case Success(v) => {
+                  log.debug(s"$v")
+                  complete(StatusCodes.OK, s"The value was: $v")
+                }
+                case Failure(e) => {
+                  log.debug(s"$e")
+                  complete(StatusCodes.InternalServerError, s"error: $e")
+                }
               }
             },
             post {
               entity(as[Document]) { doc =>
                 val created: Future[Done] = (documentManager ? CreateDocument(doc)).mapTo[Done]
+                log.debug(s"created: $created")
                 complete(created)
               }
             })
@@ -63,9 +69,16 @@ trait DocumentRoute extends SprayJsonSupport {
           concat(
             get {
               val doc: Future[Document] = (documentManager ? GetDocument(id)).mapTo[Document]
+              log.debug(s"doc future: $doc")
               onComplete(doc) {
-                case Success(v) => complete("uno")
-                case Failure(e) => complete("error")
+                case Success(v) => {
+                  log.debug(s"$v")
+                  complete(s"value: $v")
+                }
+                case Failure(e) => {
+                  log.debug(s"$e")
+                  complete(s"error: $e")
+                }
               }
             },
             delete {
