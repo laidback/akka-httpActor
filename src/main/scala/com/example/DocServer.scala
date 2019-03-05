@@ -22,8 +22,8 @@ object DocumentServer extends App with DocumentRoute {
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   //#server-bootstrapping
 
-  implicit val dbSession = SlickSession.forConfig("slick-h2")
-  log.debug(s"dbsession: $dbSession")
+  // implicit val dbSession = SlickSession.forConfig("slick-h2")
+  // log.debug(s"dbsession: $dbSession")//
 
   //#main-class
   // from the UserRoutes trait

@@ -1,15 +1,13 @@
 package com.example
 
-import akka.{ Done, actor }
+import akka.Done
 import akka.actor.{ Actor, ActorLogging, Props }
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.stream.ActorMaterializer
 import akka.stream.alpakka.slick.scaladsl.{ Slick, SlickSession }
 import akka.stream.scaladsl.{ Sink, Source }
 import slick.jdbc.GetResult
-import spray.json.{ DefaultJsonProtocol, JsonFormat }
-
-import scala.concurrent.Future
+import spray.json.{ DefaultJsonProtocol, JsonFormat, RootJsonFormat }
 
 case class User(id: Int, name: String)
 
@@ -18,16 +16,17 @@ object UserProtocol extends SprayJsonSupport {
   implicit val userFormat: JsonFormat[User] = jsonFormat2(User)
 }
 
-final case class Document(id: Int, name: String)
+case class Document(id: Int, name: String)
 
-trait DocumentProtocol extends SprayJsonSupport {
-  import DefaultJsonProtocol._
-  implicit val documentFormat = jsonFormat2(Document)
+trait DocumentProtocol extends SprayJsonSupport with DefaultJsonProtocol {
+  implicit val documentFormat: RootJsonFormat[Document] = jsonFormat2(Document)
 }
 
 object DocumentManager {
   def props(implicit materializer: ActorMaterializer): Props =
     Props[DocumentManager]
+
+  var documents = Set.empty[Document]
 
   final case object ListDocuments
   final case class GetDocument(id: Int)
@@ -43,50 +42,69 @@ object DocumentManager {
     Document(r.nextInt, r.nextString))
 }
 
-class DocumentManager(implicit materializer: ActorMaterializer)
-  extends Actor with ActorLogging {
-
+class DocumentManager extends Actor with ActorLogging {
   import DocumentManager._
+  implicit val materializer = ActorMaterializer()
   implicit val dbSession: SlickSession = SlickSession.forConfig("slick-h2")
   import dbSession.profile.api._
 
-  var documents = Set.empty[Document]
-
   override def receive: Receive = {
+
     case ListDocuments =>
-      val documents = Slick.source(sql"SELECT id, name FROM Document;".as[Document]).runWith(Sink.seq)
-      sender() ! documents
+      //val docs = documents.toList
+      val docs = Slick
+        .source(sql"SELECT id, name FROM Document".as[Document])
+        .log(s"slick list document")
+        .runWith(Sink.seq)
+
+      log.debug(s"list documents: $docs")
+      sender() ! docs
 
     case GetDocument(id) =>
-      val document = Slick.source(sql"SELECT name FROM Document WHERE id=${id};".as[Document]).runWith(Sink.head)
+      //val document = documents.find(_.id == id)
+
+      val document = Slick
+        .source(sql"SELECT id, name FROM Document WHERE id=$id".as[Document])
+        .log(s"slick get document")
+        .runWith(Sink.headOption[Document])
+
+      log.debug(s"get document: $document")
       sender() ! document
 
     case CreateDocument(doc) =>
-      val created: Future[Done] = Source.single(doc)
-        .runWith(Slick.sink(doc => sqlu"INSERT INTO Document VALUES(${doc.name})"))
-      sender() ! created
+      //val created = (documents = documents ++ Seq(doc))
+
+      val document = Source
+        .single(doc)
+        .via(Slick.flow(doc => sqlu"INSERT INTO Document(name) VALUES(${doc.name})"))
+        .log(s"slick create document")
+        .runWith(Sink.head)
+
+      log.debug(s"create document from doc: $document, $doc")
+      sender() ! Done
 
     case UpdateDocument(doc) =>
-      val updated: Future[Done] = Source.single(doc)
-        .runWith(Slick.sink(doc => sqlu"INSERT INTO Document VALUES(${doc.name})"))
-      sender() ! updated
+      //val updated = documents.find(_.id == doc.id) foreach (document => documents -= document)
+
+      val document = Source
+        .single(doc)
+        .via(Slick.flow(doc => sqlu"UPDATE Document SET name=${doc.name} WHERE id=${doc.id}"))
+        .log(s"slick update document")
+        .runWith(Sink.head)
+
+      log.debug(s"update document from doc: $document, $doc")
+      sender() ! documents
 
     case DeleteDocument(id) =>
-      val deleted = Source.single(s"$id").runWith(
-        Slick.sink(id => sqlu"DELETE FROM Document WHERE id=${id};"))
-      sender() ! deleted
+      //val done = documents.find(_.id == id) foreach (document => documents -= document)
+
+      val document = Source
+        .single(id)
+        .via(Slick.flow(doc => sqlu"DELETE FROM Document WHERE id=$id"))
+        .log(s"slick delete document")
+        .runWith(Sink.head)
+
+      log.debug(s"delete document: $document")
+      sender() ! Done
   }
 }
-
-/**
- * Use this with a local Set storage
- * case CreateDocument(doc)
- * documents = documents ++ Set(doc)
- * sender() ! DocumentCreated
- * case UpdateDocument(document) =>
- * documents = Set.empty[Document]
- * sender() ! DocumentUpdated
- * case DeleteDocument(name) =>
- * documents.find(_.name == name) foreach (document => documents -= document)
- * sender() ! DocumentDeleted
- */
